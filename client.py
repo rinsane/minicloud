@@ -5,6 +5,8 @@ No direct Docker access — all operations go through the load balancer.
 
 import requests
 import sys
+import time
+import threading
 
 LOAD_BALANCER = "http://127.0.0.1:8000"
 
@@ -62,9 +64,92 @@ def ssh_into_vm():
         print("❌ VM not found.")
         return
     server, name = target
-    print(f"\n[+] Connecting to {name} on {server}...\n")
-    res = requests.post(f"{LOAD_BALANCER}/exec_vm", json={"server": server, "name": name, "cmd": "echo 'Connected to VM:' && uname -a"}, timeout=30)
-    print(res.text)
+    
+    print(f"\n[+] Opening interactive shell to {name} on {server}...")
+    
+    # Initiate shell session
+    try:
+        res = requests.post(f"{LOAD_BALANCER}/shell_session", 
+                          json={"server": server, "name": name}, 
+                          timeout=30)
+        if res.status_code != 201:
+            print(f"❌ Failed to create shell session: {res.json()}")
+            return
+        
+        session_data = res.json()
+        session_id = session_data.get("session_id")
+        print(f"[+] Session started (ID: {session_id[:8]}...)")
+        print("[+] Type 'exit' to close connection.\n")
+        
+        # Open interactive shell
+        interactive_shell(server, session_id)
+    
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+
+def interactive_shell(server, session_id):
+    """Interactive shell session with live input/output."""
+    
+    # Start output reader thread
+    output_buffer = []
+    stop_event = threading.Event()
+    
+    def read_output():
+        while not stop_event.is_set():
+            try:
+                res = requests.post(f"{LOAD_BALANCER}/shell_output", 
+                                  json={"server": server, "session_id": session_id}, 
+                                  timeout=2)
+                if res.status_code == 200 and res.text:
+                    print(res.text, end='', flush=True)
+            except requests.exceptions.Timeout:
+                pass
+            except Exception as e:
+                if not stop_event.is_set():
+                    print(f"\n[!] Output reader error: {e}")
+            time.sleep(0.1)
+    
+    reader_thread = threading.Thread(target=read_output, daemon=True)
+    reader_thread.start()
+    
+    try:
+        while True:
+            user_input = input()
+            
+            if user_input.lower() == "exit":
+                print("\n[+] Closing connection...")
+                stop_event.set()
+                break
+            
+            # Send input to shell
+            try:
+                res = requests.post(f"{LOAD_BALANCER}/shell_input", 
+                                  json={"server": server, "session_id": session_id, "input": user_input}, 
+                                  timeout=10)
+                if res.status_code != 200:
+                    print(f"[!] Error sending command: {res.json()}")
+            except Exception as e:
+                print(f"[!] Error: {e}")
+    
+    except KeyboardInterrupt:
+        print("\n[+] Keyboard interrupt, closing connection...")
+        stop_event.set()
+    except EOFError:
+        print("\n[+] EOF, closing connection...")
+        stop_event.set()
+    
+    finally:
+        # Close session
+        try:
+            requests.post(f"{LOAD_BALANCER}/shell_close", 
+                        json={"server": server, "session_id": session_id}, 
+                        timeout=10)
+        except:
+            pass
+        
+        stop_event.set()
+        reader_thread.join(timeout=2)
 
 
 def menu():

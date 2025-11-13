@@ -11,6 +11,9 @@ import docker
 import threading
 import time
 import argparse
+import uuid
+import queue
+import subprocess
 
 
 app = Flask(__name__)
@@ -19,6 +22,10 @@ client = docker.DockerClient(base_url='unix:///home/testuser/.docker/desktop/doc
 # Internal store
 containers = {}
 lock = threading.Lock()
+
+# Session store for interactive shells
+shell_sessions = {}
+shell_lock = threading.Lock()
 
 @app.route("/create_vm", methods=["POST"])
 def create_vm():
@@ -76,6 +83,100 @@ def exec_vm(name):
         exec_result = container.exec_run(cmd, stdin=False, tty=False)
         output = exec_result.output.decode("utf-8", errors="ignore")
         return Response(output, mimetype="text/plain")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_session/<name>", methods=["POST"])
+def shell_session(name):
+    """Initiate an interactive shell session. Returns a session ID."""
+    with lock:
+        container = containers.get(name)
+        if not container:
+            return jsonify({"error": "VM not found"}), 404
+    
+    session_id = str(uuid.uuid4())
+    
+    try:
+        # Create interactive exec instance
+        exec_socket = container.exec_run(
+            "/bin/sh",
+            stdin=True,
+            stdout=True,
+            stderr=True,
+            tty=True,
+            socket=True,
+            demux=False
+        )
+        
+        with shell_lock:
+            shell_sessions[session_id] = {
+                "container_name": name,
+                "socket": exec_socket,
+                "created_at": time.time()
+            }
+        
+        return jsonify({"session_id": session_id, "status": "active"}), 201
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_input/<session_id>", methods=["POST"])
+def shell_input(session_id):
+    """Send input to an active shell session."""
+    with shell_lock:
+        session = shell_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+    
+    data = request.get_json(force=True)
+    cmd_input = data.get("input", "")
+    
+    try:
+        socket = session["socket"]
+        socket._sock.sendall((cmd_input + "\n").encode())
+        return jsonify({"status": "sent"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_output/<session_id>", methods=["GET"])
+def shell_output(session_id):
+    """Get output from an active shell session."""
+    with shell_lock:
+        session = shell_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+    
+    try:
+        socket = session["socket"]
+        # Try to read with a short timeout
+        socket._sock.settimeout(0.5)
+        try:
+            output = socket._sock.recv(4096).decode("utf-8", errors="ignore")
+        except socket.timeout:
+            output = ""
+        socket._sock.settimeout(None)
+        
+        return Response(output, mimetype="text/plain")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_close/<session_id>", methods=["POST"])
+def shell_close(session_id):
+    """Close an active shell session."""
+    with shell_lock:
+        session = shell_sessions.pop(session_id, None)
+    
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+    
+    try:
+        socket = session["socket"]
+        socket._sock.close()
+        return jsonify({"status": "closed"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

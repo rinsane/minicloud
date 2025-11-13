@@ -70,6 +70,74 @@ def exec_vm():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/shell_session", methods=["POST"])
+def shell_session():
+    """Initiate an interactive shell session on a container."""
+    data = request.get_json(force=True)
+    server = data.get("server")
+    name = data.get("name")
+    if not server or not name:
+        return jsonify({"error": "Missing server or name"}), 400
+    
+    try:
+        res = requests.post(f"{server}/shell_session/{name}", timeout=15)
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_input", methods=["POST"])
+def shell_input():
+    """Send input to an active shell session."""
+    data = request.get_json(force=True)
+    server = data.get("server")
+    session_id = data.get("session_id")
+    cmd_input = data.get("input", "")
+    
+    if not server or not session_id:
+        return jsonify({"error": "Missing server or session_id"}), 400
+    
+    try:
+        res = requests.post(f"{server}/shell_input/{session_id}", json={"input": cmd_input}, timeout=15)
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_output", methods=["POST"])
+def shell_output():
+    """Get output from an active shell session."""
+    data = request.get_json(force=True)
+    server = data.get("server")
+    session_id = data.get("session_id")
+    
+    if not server or not session_id:
+        return jsonify({"error": "Missing server or session_id"}), 400
+    
+    try:
+        res = requests.get(f"{server}/shell_output/{session_id}", timeout=5)
+        return (res.text, res.status_code, {"Content-Type": "text/plain"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shell_close", methods=["POST"])
+def shell_close():
+    """Close an active shell session."""
+    data = request.get_json(force=True)
+    server = data.get("server")
+    session_id = data.get("session_id")
+    
+    if not server or not session_id:
+        return jsonify({"error": "Missing server or session_id"}), 400
+    
+    try:
+        res = requests.post(f"{server}/shell_close/{session_id}", timeout=15)
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
 
