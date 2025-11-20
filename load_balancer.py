@@ -26,15 +26,13 @@ def create_vm():
 
 @app.route("/list_all", methods=["GET"])
 def list_all():
-    """Fetch list of VMs from all servers."""
-    results = []
-    for s in servers:
-        try:
-            r = requests.get(f"{s}/list_vms", timeout=5)
-            results.append({s: r.json()})
-        except Exception as e:
-            results.append({s: f"Error: {e}"})
-    return jsonify(results)
+    """Fetch list of VMs from a single server (round-robin)."""
+    server = next(server_cycle)
+    try:
+        r = requests.get(f"{server}/list_vms", timeout=5)
+        return jsonify({server: r.json()})
+    except Exception as e:
+        return jsonify({server: f"Error: {e}"}), 500
 
 
 @app.route("/delete_vm", methods=["POST"])
@@ -48,6 +46,22 @@ def delete_vm():
 
     try:
         res = requests.delete(f"{server}/delete_vm/{name}", timeout=15)
+        return jsonify(res.json()), res.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/shutdown_vm", methods=["POST"])
+def shutdown_vm():
+    """Forward shutdown requests to the server that owns the container (stop without delete)."""
+    data = request.get_json(force=True)
+    server = data.get("server")
+    name = data.get("name")
+    if not server or not name:
+        return jsonify({"error": "Missing server or name"}), 400
+
+    try:
+        res = requests.post(f"{server}/shutdown_vm/{name}", timeout=15)
         return jsonify(res.json()), res.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 500

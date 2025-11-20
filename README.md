@@ -1,19 +1,19 @@
 # Mini Cloud Infrastructure (Python + Docker)
 
 This project simulates a mini cloud environment on local or distributed machines.
-It implements lightweight server nodes, a load balancer, and a client CLI to manage virtual "VMs" (Docker containers) that can be created, listed, deleted, and accessed via SSH.
+It implements lightweight server nodes, a load balancer, and a web dashboard to manage virtual "VMs" (Docker containers) that can be created, listed, deleted, and accessed via SSH.
 
 ---
 
 ## Architecture Overview
 
 ```
-CLIENT  ->  LOAD BALANCER  ->  SERVER NODE(S)  ->  DOCKER CONTAINERS
+WEB APP (Flask)  ->  LOAD BALANCER  ->  SERVER NODE(S)  ->  DOCKER CONTAINERS
 ```
 
-* **Client** – CLI that sends REST calls to the Load Balancer
-* **Load Balancer** – Distributes requests between servers (round-robin)
-* **Server Node** – Hosts and manages containers (acts like a VM host)
+* **Web App** (`app.py`) – Single Flask app that auto-starts services, provides user login/register, and admin panel with logs
+* **Load Balancer** (`load_balancer.py`) – Distributes requests between servers (round-robin)
+* **Server Node** (`server_node.py`) – Hosts and manages containers (acts like a VM host)
 * **Container (VM)** – Lightweight Alpine Linux instance with SSH access
 
 ---
@@ -22,83 +22,121 @@ CLIENT  ->  LOAD BALANCER  ->  SERVER NODE(S)  ->  DOCKER CONTAINERS
 
 * Linux / WSL with Python 3.10+
 * Docker Desktop or native Docker Engine
-
-  * Docker socket: `unix:///home/<user>/.docker/desktop/docker.sock`
-* Python packages:
-
-  ```bash
-  pip install flask requests docker
-  ```
+* Python packages: `flask requests docker`
 
 ---
 
-## Setup & Run
-
-### 1. Start Server Nodes
-
-Each server simulates a compute host.
+## Quick Start
 
 ```bash
-python3 server_node.py --port 5000
-python3 server_node.py --port 5001
+# Install dependencies
+pip install flask requests docker
+
+# Run the app (auto-starts services)
+python3 app.py
 ```
 
-Each server connects to your Docker Desktop daemon
-(`unix:///home/testuser/.docker/desktop/docker.sock`).
+Then open http://127.0.0.1:5555 in your browser.
+
+### Default Credentials
+
+* **Admin**: `admin` / `admin` (see system logs)
+* **Register**: Create your own user account
 
 ---
 
-### 2. Start Load Balancer
+## Features
 
-```bash
-python3 load_balancer.py
-```
+### User Dashboard
+* Create VMs
+* List your VMs
+* SSH into VM (shell terminal in browser)
+* Shutdown VM (graceful stop)
+* Delete VM (permanent removal)
 
-* Runs on port 8000
-* Forwards `/create_vm`, `/delete_vm`, `/exec_vm`, `/list_all` between servers
-
----
-
-### 3. Launch Client
-
-```bash
-python3 client.py
-```
-
-#### Available Operations
-
-| Option | Description                                                      |
-| ------ | ---------------------------------------------------------------- |
-| 1      | Create VM - starts a container on one of the servers             |
-| 2      | List VMs - shows all containers across servers                   |
-| 3      | SSH into VM - opens shell (real SSH if enabled, or exec command) |
-| 4      | Delete VM - stops and removes container                          |
-| 5      | Exit - close client                                              |
+### Admin Panel
+* View real-time logs from all services (load balancer, server nodes)
+* Monitor system activity
 
 ---
 
-## VM (Container) Details
+## VM Details
 
-* Base image: `alpine-ssh` (Alpine + OpenSSH)
-* Runs `sshd -D`
-* Exposes port 22/tcp (mapped dynamically on host)
-* Server returns:
+* Base image: `alpine` (lightweight Linux)
+* Runs in Docker containers
+* Exposes port 22/tcp for SSH (optional)
+* SSH via shell interface in dashboard
 
-  ```json
-  {
-    "status": "created",
-    "name": "vm_1",
-    "ssh_host": "192.168.1.10",
-    "ssh_port": "32775",
-    "username": "root",
-    "password": "root"
-  }
-  ```
-* Connect directly:
+---
 
-  ```bash
-  ssh root@<ssh_host> -p <ssh_port>
-  ```
+## How It Works
+
+1. **App starts** → automatically launches load balancer and 2 server nodes on ports 5000/5001
+2. **User login/register** → credentials stored locally
+3. **Create VM** → load balancer assigns to a server, container created
+4. **SSH into VM** → starts interactive shell session via Docker exec
+5. **Shutdown VM** → container pauses (can be restarted)
+6. **Delete VM** → container permanently removed
+7. **Admin panel** → see all logs from all services
+
+---
+
+## API Endpoints (for reference)
+
+* `POST /create_vm` – Create a container
+* `GET /list_all` – List VMs on a server (round-robin)
+* `POST /delete_vm` – Delete a container
+* `POST /shutdown_vm` – Stop a container (graceful)
+* `POST /shell_session` – Start interactive shell
+* `POST /shell_input` – Send command to shell
+* `POST /shell_output` – Get shell output
+* `POST /shell_close` – Close shell session
+
+---
+
+## File Structure
+
+```
+.
+├── app.py                    # Main Flask app (user login, dashboard, admin)
+├── load_balancer.py         # Load balancer (round-robin)
+├── server_node.py           # Server node (container host)
+├── client.py                # Old CLI (deprecated)
+├── templates/
+│   ├── login.html           # Login page
+│   ├── register.html        # Register page
+│   ├── dashboard.html       # User dashboard
+│   ├── admin.html           # Admin logs
+│   └── shell.html           # Terminal shell
+├── users.json               # User credentials (auto-created)
+├── user_vms.json            # User VM registry (auto-created)
+└── requirements.txt         # Python dependencies
+```
+
+---
+
+## Troubleshooting
+
+### "Failed to connect to Docker daemon"
+- Ensure Docker Desktop is running or Docker daemon is active
+
+### Services not starting
+- Check logs in Admin panel for errors
+- Verify ports 8000, 5000, 5001 are not in use
+
+### Shell not responding
+- Try refreshing the page
+- Check Admin logs for errors
+
+---
+
+## Notes
+
+* This is a demo/learning project, not production-ready
+* Passwords are stored in plain text (for simplicity)
+* Containers are created on the host Docker daemon
+* All VM data persists in JSON files (users.json, user_vms.json)
+
 
 ---
 

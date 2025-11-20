@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MiniCloud - Admin Panel</title>
+  <style>
+    body { font-family: monospace; background: #1e1e1e; color: #00ff00; margin: 0; padding: 10px }
+    .container { max-width: 100%; height: 100vh; display: flex; flex-direction: column }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 10px; background: #2d2d2d; border-radius: 4px }
+    h1 { margin: 0; color: #00ff00; font-size: 18px }
+    .logout { background: #dc3545; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; font-family: monospace }
+    .logs-container { display: flex; gap: 10px; flex: 1; margin-bottom: 10px }
+    .logs-pane { flex: 1; display: flex; flex-direction: column; min-width: 0 }
+    .pane-title { background: #2d2d2d; color: #00ff00; padding: 8px; border-radius: 4px 4px 0 0; font-weight: bold; font-size: 12px }
+    .logs { flex: 1; overflow-y: auto; background: #000; padding: 10px; border: 1px solid #333; border-radius: 0 0 4px 4px; font-size: 11px; line-height: 1.4 }
+    .log-line { margin: 2px 0; word-break: break-all }
+    .log-app { color: #00ff00 }
+    .log-lb { color: #00ffff }
+    .log-server0 { color: #ffff00 }
+    .log-server1 { color: #ff8800 }
+    .log-err { color: #ff0000 }
+    .controls { display: flex; gap: 10px }
+    button { padding: 8px 12px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-size: 12px }
+    button:hover { background: #0052a3 }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>MiniCloud - Admin Panel (System Logs)</h1>
+      <a href="/logout" class="logout">Logout</a>
+    </div>
+
+    <div class="logs-container">
+      <div class="logs-pane">
+        <div class="pane-title">Load Balancer Logs</div>
+        <div class="logs" id="logs-lb"></div>
+      </div>
+      <div class="logs-pane">
+        <div class="pane-title">Server:5000 Logs</div>
+        <div class="logs" id="logs-server0"></div>
+      </div>
+      <div class="logs-pane">
+        <div class="pane-title">Server:5001 Logs</div>
+        <div class="logs" id="logs-server1"></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button onclick="location.reload()">Refresh All</button>
+      <button onclick="document.getElementById('logs-lb').innerHTML = ''; document.getElementById('logs-server0').innerHTML = ''; document.getElementById('logs-server1').innerHTML = ''">Clear All</button>
+    </div>
+  </div>
+
+  <script>
+    function updateLogs() {
+      fetch('/admin/logs')
+        .then(r => r.json())
+        .then(data => {
+          const lbDiv = document.getElementById('logs-lb');
+          const server0Div = document.getElementById('logs-server0');
+          const server1Div = document.getElementById('logs-server1');
+
+          const lbLogs = data.logs.filter(log => '[LB]' in log);
+          const server0Logs = data.logs.filter(log => '[SERVER:5000]' in log);
+          const server1Logs = data.logs.filter(log => '[SERVER:5001]' in log);
+
+          function renderLogs(logs, logType) {
+            return logs.map(log => {
+              let cls = '';
+              if ('[LB]' in log) cls = 'log-lb';
+              else if ('[SERVER:5000]' in log) cls = 'log-server0';
+              else if ('[SERVER:5001]' in log) cls = 'log-server1';
+              else if ('ERR' in log || 'Error' in log) cls = 'log-err';
+              return '<div class="log-line ' + cls + '">' + log.replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;') + '</div>';
+            }).join('');
+          }
+
+          lbDiv.innerHTML = renderLogs(lbLogs, 'lb') || '<div class="log-line" style="color: #666">No logs yet...</div>';
+          server0Div.innerHTML = renderLogs(server0Logs, 'server0') || '<div class="log-line" style="color: #666">No logs yet...</div>';
+          server1Div.innerHTML = renderLogs(server1Logs, 'server1') || '<div class="log-line" style="color: #666">No logs yet...</div>';
+
+          lbDiv.scrollTop = lbDiv.scrollHeight;
+          server0Div.scrollTop = server0Div.scrollHeight;
+          server1Div.scrollTop = server1Div.scrollHeight;
+        });
+    }
+
+    // Initial load and auto-refresh every 1.5 seconds
+    updateLogs();
+    setInterval(updateLogs, 1500);
+  </script>
+</body>
+</html>

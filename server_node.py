@@ -69,6 +69,21 @@ def delete_vm(name):
         container.remove()
     return jsonify({"status": "deleted", "name": name})
 
+
+@app.route("/shutdown_vm/<name>", methods=["POST"])
+def shutdown_vm(name):
+    """Stop a container without removing it (can be restarted later)"""
+    with lock:
+        container = containers.get(name)
+        if not container:
+            return jsonify({"error": "Not found"}), 404
+        try:
+            container.stop()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({"status": "stopped", "name": name})
+
+
 @app.route("/exec_vm/<name>", methods=["POST"])
 def exec_vm(name):
     """Execute a command inside a container and stream output back."""
