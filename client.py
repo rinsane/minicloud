@@ -100,7 +100,7 @@ def interactive_shell(server, session_id):
             try:
                 res = requests.post(f"{LOAD_BALANCER}/shell_output", 
                                   json={"server": server, "session_id": session_id}, 
-                                  timeout=2)
+                                  timeout=1)
                 if res.status_code == 200 and res.text:
                     print(res.text, end='', flush=True)
             except requests.exceptions.Timeout:
@@ -108,7 +108,7 @@ def interactive_shell(server, session_id):
             except Exception as e:
                 if not stop_event.is_set():
                     print(f"\n[!] Output reader error: {e}")
-            time.sleep(0.1)
+            time.sleep(0.05)
     
     reader_thread = threading.Thread(target=read_output, daemon=True)
     reader_thread.start()

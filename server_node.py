@@ -14,6 +14,7 @@ import argparse
 import uuid
 import queue
 import subprocess
+import socket
 
 
 app = Flask(__name__)
@@ -98,21 +99,25 @@ def shell_session(name):
     session_id = str(uuid.uuid4())
     
     try:
-        # Create interactive exec instance
-        exec_socket = container.exec_run(
+        # Create interactive exec instance using Docker API
+        exec_id = client.api.exec_create(
+            container.id,
             "/bin/sh",
             stdin=True,
             stdout=True,
             stderr=True,
-            tty=True,
-            socket=True,
-            demux=False
-        )
+            tty=True
+        )["Id"]
+        
+        # Start the exec and get the socket
+        socket_obj = client.api.exec_start(exec_id, socket=True, tty=True)
         
         with shell_lock:
             shell_sessions[session_id] = {
                 "container_name": name,
-                "socket": exec_socket,
+                "container_id": container.id,
+                "exec_id": exec_id,
+                "socket": socket_obj,
                 "created_at": time.time()
             }
         
@@ -141,7 +146,7 @@ def shell_input(session_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/shell_output/<session_id>", methods=["GET"])
+@app.route("/shell_output/<session_id>", methods=["POST"])
 def shell_output(session_id):
     """Get output from an active shell session."""
     with shell_lock:
@@ -150,14 +155,14 @@ def shell_output(session_id):
             return jsonify({"error": "Session not found"}), 404
     
     try:
-        socket = session["socket"]
+        socket_obj = session["socket"]
         # Try to read with a short timeout
-        socket._sock.settimeout(0.5)
+        socket_obj._sock.settimeout(0.1)
         try:
-            output = socket._sock.recv(4096).decode("utf-8", errors="ignore")
-        except socket.timeout:
+            output = socket_obj._sock.recv(4096).decode("utf-8", errors="ignore")
+        except (socket.timeout, BlockingIOError):
             output = ""
-        socket._sock.settimeout(None)
+        socket_obj._sock.settimeout(None)
         
         return Response(output, mimetype="text/plain")
     except Exception as e:

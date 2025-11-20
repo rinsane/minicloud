@@ -115,7 +115,7 @@ def shell_output():
         return jsonify({"error": "Missing server or session_id"}), 400
     
     try:
-        res = requests.get(f"{server}/shell_output/{session_id}", timeout=5)
+        res = requests.post(f"{server}/shell_output/{session_id}", timeout=5)
         return (res.text, res.status_code, {"Content-Type": "text/plain"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
